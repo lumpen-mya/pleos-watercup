@@ -232,16 +232,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 }
 
 fun SpillCause.label() = when (this) {
-    SpillCause.BRAKE -> "브레이크 급감속"
-    SpillCause.LIFT_OFF -> "페달 없는 감속"
+    SpillCause.BRAKE -> "급제동"
+    SpillCause.LIFT_OFF -> "가속 페달 급히 떼기"
     SpillCause.ACCEL -> "급가속"
-    SpillCause.STEER -> "급조향"
+    SpillCause.STEER -> "급핸들"
 }
 
 fun SpillCause.tip() = when (this) {
     SpillCause.BRAKE -> "정지 직전에 브레이크를 살짝 풀어 주세요."
     SpillCause.LIFT_OFF -> "가속 페달은 천천히 떼어 주세요."
-    SpillCause.ACCEL -> "출발은 조금만 더 천천히요."
+    SpillCause.ACCEL -> "출발할 때는 천천히 밟아 주세요."
     SpillCause.STEER -> "핸들은 미리, 천천히 돌려 주세요."
 }
 
@@ -252,7 +252,7 @@ fun compareText(spills: Int, previous: TripRecord?): String? {
     return when {
         diff < 0 -> "지난 주행보다 ${-diff}번 줄었어요"
         diff > 0 -> "지난 주행보다 ${diff}번 늘었어요"
-        else -> "지난 주행과 같아요"
+        else -> "지난 주행과 횟수가 같아요"
     }
 }
 

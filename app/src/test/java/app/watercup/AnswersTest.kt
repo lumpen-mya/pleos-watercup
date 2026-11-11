@@ -25,7 +25,7 @@ class AnswersTest {
     fun `원인을 물으면 가장 많은 원인과 조언을 답한다`() {
         val history = listOf(trip(SpillCause.LIFT_OFF to 4, SpillCause.BRAKE to 1))
         val answer = answerFor("왜 쏟았어", history)
-        assertTrue("페달 없는 감속" in answer)
+        assertTrue("가속 페달 급히 떼기" in answer)
         assertTrue("4번" in answer)
     }
 

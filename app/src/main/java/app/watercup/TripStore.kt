@@ -9,8 +9,8 @@ import org.json.JSONObject
 /** 넘침 민감도. 값은 물이 넘치기 시작하는 기울기(도)로, 작을수록 민감하다. */
 enum class Sensitivity(val label: String, val rimDeg: Float) {
     GENTLE("아이·반려동물", 10f),
-    NORMAL("기본", 13f),
-    RELAXED("여유", 16f),
+    NORMAL("어른", 13f),
+    RELAXED("혼자", 16f),
 }
 
 data class TripRecord(

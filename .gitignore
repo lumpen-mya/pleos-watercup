@@ -8,5 +8,3 @@ captures/
 *.log
 docs/~$*
 
-# 접수양식은 개인정보·서명이 들어가므로 올리지 않는다
-docs/*.docx

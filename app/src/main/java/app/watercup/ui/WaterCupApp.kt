@@ -3,6 +3,7 @@ package app.watercup.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -46,22 +49,45 @@ import app.watercup.engine.SpillCause
 import app.watercup.label
 import app.watercup.signal.VehicleSignals
 import app.watercup.tip
+import kotlin.math.abs
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.math.tan
 
-private val Night = Color(0xFF0B1622)
-private val Panel = Color(0xFF142536)
-private val Glass = Color(0xFFE6F2FA)
-private val Water = Color(0xFF4FC3F7)
-private val WaterDeep = Color(0xFF0288D1)
-private val Warn = Color(0xFFFF8A65)
-private val Dim = Color(0xFF8FA6B8)
-private val Good = Color(0xFF81C784)
+/** 차량 기본 화면(밝은 바탕, 검은 글자, 파란 포인트)에 맞춘 색. 시스템이 어두운 테마면 어두운 쪽을 쓴다. */
+private class Palette(
+    val bg: Color, val panel: Color, val ink: Color, val dim: Color, val glassEdge: Color,
+    val water: Color, val waterDeep: Color, val warn: Color, val good: Color, val shadow: Float,
+)
+
+private val LightPalette = Palette(
+    bg = Color(0xFFFFFFFF), panel = Color(0xFFEFF2F5), ink = Color(0xFF15181C), dim = Color(0xFF66707A),
+    glassEdge = Color(0xFFA9B6C2), water = Color(0xFF1A73E8), waterDeep = Color(0xFF0D4FA8),
+    warn = Color(0xFFE04F2A), good = Color(0xFF1B8A4A), shadow = 0.12f,
+)
+private val DarkPalette = Palette(
+    bg = Color(0xFF0B1622), panel = Color(0xFF142536), ink = Color(0xFFE6F2FA), dim = Color(0xFF8FA6B8),
+    glassEdge = Color(0xFFE6F2FA), water = Color(0xFF4FC3F7), waterDeep = Color(0xFF0288D1),
+    warn = Color(0xFFFF8A65), good = Color(0xFF81C784), shadow = 0.35f,
+)
+private var palette = LightPalette
+
+private val Night get() = palette.bg
+private val Panel get() = palette.panel
+private val Glass get() = palette.ink
+private val GlassEdge get() = palette.glassEdge
+private val Water get() = palette.water
+private val WaterDeep get() = palette.waterDeep
+private val Warn get() = palette.warn
+private val Dim get() = palette.dim
+private val Good get() = palette.good
 
 private const val CUP_ML = 300f
+private val Corner = 16.dp
 
 @Composable
 fun WaterCupApp(state: UiState, onSensitivity: (Sensitivity) -> Unit = {}, onAsk: () -> Unit = {}) {
+    palette = if (isSystemInDarkTheme()) DarkPalette else LightPalette
     Box(
         Modifier
             .fillMaxSize()
@@ -80,90 +106,91 @@ fun WaterCupApp(state: UiState, onSensitivity: (Sensitivity) -> Unit = {}, onAsk
 @Composable
 private fun ReadyScreen(state: UiState, onSensitivity: (Sensitivity) -> Unit, onAsk: () -> Unit) {
     Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-        Cup(state.cup, Modifier.weight(0.9f).fillMaxHeight())
-        Column(Modifier.weight(1f).padding(start = 32.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Cup(state.cup, Modifier.weight(0.8f).fillMaxHeight())
+        Column(Modifier.weight(1f).padding(start = 32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("찰랑", color = Glass, fontSize = 72.sp, fontWeight = FontWeight.Bold)
-                Text("물컵 챌린지", color = Dim, fontSize = 34.sp, modifier = Modifier.padding(bottom = 14.dp))
+                Text("찰랑", color = Glass, fontSize = 80.sp, fontWeight = FontWeight.Bold)
+                Text("물컵 챌린지", color = Dim, fontSize = 36.sp, modifier = Modifier.padding(bottom = 16.dp))
             }
-            Text("뒷자리 사람이 편한 운전, 물 한 컵으로 확인하세요.", color = Dim, fontSize = 30.sp)
-            Text("기어를 D에 넣으면 시작합니다.", color = Water, fontSize = 34.sp, fontWeight = FontWeight.Medium)
+            Text("뒷자리가 편한 운전인지 물 한 컵으로 확인해 보세요.", color = Dim, fontSize = 34.sp)
+            Text("기어를 D에 넣으면 시작해요.", color = Water, fontSize = 40.sp, fontWeight = FontWeight.Medium)
+            if (state.signals.rearOccupied) {
+                Badge("케어 주행 · 뒷좌석에 탄 사람이 있어 음성으로 알려 드려요")
+            }
 
-            Spacer(Modifier.height(6.dp))
-            Text("누구와 타나요", color = Dim, fontSize = 24.sp)
+            Spacer(Modifier.height(8.dp))
+            Text("누구와 타나요?", color = Dim, fontSize = 28.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Sensitivity.entries.forEach { option ->
                     val selected = option == state.sensitivity
                     Text(
                         text = option.label,
                         color = if (selected) Night else Glass,
-                        fontSize = 28.sp,
+                        fontSize = 32.sp,
                         fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(14.dp))
+                            .clip(RoundedCornerShape(Corner))
                             .background(if (selected) Water else Panel)
                             .clickable { onSensitivity(option) }
-                            .padding(horizontal = 26.dp, vertical = 16.dp),
+                            .padding(horizontal = 30.dp, vertical = 22.dp),
                     )
                 }
             }
 
             if (state.history.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                Text("최근 주행", color = Dim, fontSize = 24.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("최근 주행", color = Dim, fontSize = 28.sp)
                 state.history.take(3).forEach { trip ->
                     Text(
                         text = "%.1f km · %s · ".format(trip.distanceM / 1000f, formatDuration(trip.durationSec)) +
-                            if (trip.spills == 0) "쏟지 않음" else "${trip.spills}번 · %.0f ml".format(trip.spilledMl),
+                            if (trip.spills == 0) "쏟지 않음" else "${trip.spills}번 · %.0f ml 쏟음".format(trip.spilledMl),
                         color = if (trip.spills == 0) Good else Glass,
-                        fontSize = 28.sp,
+                        fontSize = 32.sp,
                     )
                 }
             }
 
+            Spacer(Modifier.height(8.dp))
             AskRow(state, onAsk)
-            Spacer(Modifier.height(6.dp))
-            SignalChips(state)
+            SignalStatus(state)
         }
     }
 }
 
 @Composable
-private fun SignalChips(state: UiState) {
+private fun Badge(text: String) {
+    Text(
+        text,
+        color = Good,
+        fontSize = 28.sp,
+        modifier = Modifier
+            .clip(RoundedCornerShape(Corner))
+            .background(Panel)
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+    )
+}
+
+/** 차량 신호 연결 상태 한 줄. 모두 연결되면 한마디만, 빠진 신호가 있을 때만 이름을 보여 준다. */
+@Composable
+private fun SignalStatus(state: UiState) {
     val items = listOf(
         VehicleSignals.GEAR, VehicleSignals.BRAKE, VehicleSignals.STEERING, VehicleSignals.SEAT,
-    ).map { name ->
-        Triple(name, name in state.signals.live, state.signals.errors[name])
-    } + Triple("속도", state.speedKph != null, state.speedError) +
-        Triple("음성", state.voiceReady, null) +
-        Triple("음성 인식", state.askReady, null) +
-        Triple("내비", state.naviReady, null)
+    ).map { name -> name to (name in state.signals.live) } +
+        ("속도" to (state.speedKph != null)) +
+        ("음성 안내" to state.voiceReady) +
+        ("음성 인식" to state.askReady) +
+        ("내비" to state.naviReady)
+    val missing = items.filterNot { it.second }.map { it.first }
+    val hasError = state.signals.errors.isNotEmpty() || state.speedError != null
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("차량 신호", color = Dim, fontSize = 24.sp)
-        items.chunked(3).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                row.forEach { (name, ok, error) ->
-                    val color = when {
-                        ok -> Good
-                        error != null -> Warn
-                        else -> Dim
-                    }
-                    Text(
-                        text = (if (ok) "● " else "○ ") + name,
-                        color = color,
-                        fontSize = 26.sp,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Panel)
-                            .padding(horizontal = 18.dp, vertical = 10.dp),
-                    )
-                }
-            }
-        }
-        if (state.signals.rearOccupied) {
-            Text("뒷좌석 탑승 감지됨 · 케어 주행", color = Good, fontSize = 26.sp)
-        }
+    if (missing.isEmpty()) {
+        Text("● 차량과 연결됐어요", color = Good, fontSize = 28.sp)
+    } else {
+        Text(
+            "○ 아직 연결 안 됨: " + missing.joinToString(" · "),
+            color = if (hasError) Warn else Dim,
+            fontSize = 28.sp,
+        )
     }
 }
 
@@ -177,15 +204,7 @@ private fun DrivingScreen(state: UiState) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             if (state.signals.rearOccupied) {
-                Text(
-                    "케어 주행",
-                    color = Good,
-                    fontSize = 28.sp,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Panel)
-                        .padding(horizontal = 18.dp, vertical = 8.dp),
-                )
+                Badge("케어 주행")
             }
             Text("쏟은 물", color = Dim, fontSize = 32.sp)
             Row(verticalAlignment = Alignment.Bottom) {
@@ -197,7 +216,12 @@ private fun DrivingScreen(state: UiState) {
                 )
                 Text(" ml", color = Dim, fontSize = 48.sp, modifier = Modifier.padding(bottom = 28.dp))
             }
-            Text("${state.cup.events.size}번", color = Glass, fontSize = 48.sp)
+            val spills = state.cup.events.size
+            Text(
+                if (spills == 0) "아직 안 쏟았어요" else "${spills}번 쏟음",
+                color = if (spills == 0) Good else Glass,
+                fontSize = 48.sp,
+            )
             Spacer(Modifier.height(8.dp))
             val cause = state.lastCause
             val turn = state.upcomingTurn
@@ -215,42 +239,59 @@ private fun DrivingScreen(state: UiState) {
 @Composable
 private fun ReviewScreen(state: UiState, onAsk: () -> Unit) {
     val cup = state.cup
-    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            Text("오늘의 물컵", color = Dim, fontSize = 34.sp)
+    val clean = cup.events.isEmpty()
+    Row(
+        Modifier.fillMaxSize().padding(horizontal = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(40.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // 남은 물과 바닥에 고인 물을 그대로 보여 준다
+        Cup(cup, Modifier.weight(0.75f).fillMaxHeight())
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(22.dp)) {
+            Text("이번 주행", color = Dim, fontSize = 36.sp)
             Text(
-                if (cup.events.isEmpty()) "한 방울도 쏟지 않았어요" else "${cup.events.size}번 쏟았어요",
-                color = if (cup.events.isEmpty()) Good else Glass,
-                fontSize = 72.sp,
+                if (clean) "한 방울도 쏟지 않았어요" else "${cup.events.size}번 쏟았어요",
+                color = if (clean) Good else Glass,
+                fontSize = if (clean) 54.sp else 84.sp,
                 fontWeight = FontWeight.Bold,
             )
+            compareText(cup.events.size, state.previous)?.let {
+                Text(it, color = Water, fontSize = 38.sp, fontWeight = FontWeight.Medium)
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Stat("주행 거리", "%.1f km".format(cup.distanceM / 1000f))
                 Stat("주행 시간", formatDuration(cup.durationSec))
                 Stat("쏟은 물", "%.0f ml".format(cup.spilledMl))
             }
-            compareText(cup.events.size, state.previous)?.let {
-                Text(it, color = Water, fontSize = 36.sp, fontWeight = FontWeight.Medium)
-            }
-            Spacer(Modifier.height(4.dp))
-            Text("기어를 D에 넣으면 새 컵으로 다시 시작합니다.", color = Dim, fontSize = 28.sp)
             Spacer(Modifier.height(8.dp))
             AskRow(state, onAsk)
+            Text("기어를 D에 넣으면 새 컵으로 다시 시작해요.", color = Dim, fontSize = 28.sp)
         }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("물을 쏟게 한 순간", color = Dim, fontSize = 34.sp)
-            val counts = cup.events.groupingBy { it.cause }.eachCount()
-            val max = (counts.values.maxOrNull() ?: 1).coerceAtLeast(1)
-            SpillCause.entries.forEach { cause ->
-                CauseRow(cause, counts[cause] ?: 0, max)
-            }
-            val noSignal = cup.events.count { it.withoutSignal }
-            if (noSignal > 0) {
-                Text("급조향 중 ${noSignal}번은 방향지시등 없이", color = Warn, fontSize = 28.sp)
-            }
-            counts.maxByOrNull { it.value }?.let { top ->
-                Spacer(Modifier.height(4.dp))
-                Text(top.key.tip(), color = Water, fontSize = 36.sp, fontWeight = FontWeight.Medium, lineHeight = 48.sp)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            if (clean) {
+                Text(
+                    "급제동·급가속·급핸들 없이\n도착했어요.",
+                    color = Glass,
+                    fontSize = 40.sp,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 54.sp,
+                )
+                Text("뒷자리도 편안했을 거예요.", color = Dim, fontSize = 34.sp)
+            } else {
+                Text("쏟은 원인", color = Dim, fontSize = 36.sp)
+                val counts = cup.events.groupingBy { it.cause }.eachCount()
+                val max = counts.values.max()
+                SpillCause.entries.forEach { cause ->
+                    CauseRow(cause, counts[cause] ?: 0, max)
+                }
+                val noSignal = cup.events.count { it.withoutSignal }
+                if (noSignal > 0) {
+                    Text("급핸들 ${noSignal}번은 방향지시등을 켜지 않았어요.", color = Warn, fontSize = 30.sp)
+                }
+                counts.maxByOrNull { it.value }?.let { top ->
+                    Spacer(Modifier.height(4.dp))
+                    Text(top.key.tip(), color = Water, fontSize = 38.sp, fontWeight = FontWeight.Medium, lineHeight = 50.sp)
+                }
             }
         }
     }
@@ -260,12 +301,12 @@ private fun ReviewScreen(state: UiState, onAsk: () -> Unit) {
 private fun Stat(label: String, value: String) {
     Column(
         Modifier
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(Corner))
             .background(Panel)
             .padding(horizontal = 24.dp, vertical = 16.dp)
     ) {
-        Text(label, color = Dim, fontSize = 24.sp)
-        Text(value, color = Glass, fontSize = 40.sp, fontWeight = FontWeight.Medium)
+        Text(label, color = Dim, fontSize = 26.sp)
+        Text(value, color = Glass, fontSize = 38.sp, fontWeight = FontWeight.Medium, maxLines = 1)
     }
 }
 
@@ -274,12 +315,12 @@ private fun CauseRow(cause: SpillCause, count: Int, max: Int) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(Corner))
             .background(Panel)
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(cause.label(), color = Glass, fontSize = 32.sp, modifier = Modifier.width(300.dp))
+        Text(cause.label(), color = Glass, fontSize = 30.sp, modifier = Modifier.width(290.dp))
         Box(Modifier.weight(1f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(Night)) {
             if (count > 0) {
                 Box(
@@ -304,39 +345,106 @@ private fun formatDuration(sec: Float): String {
 @Composable
 private fun AskRow(state: UiState, onAsk: () -> Unit) {
     if (!state.askReady) return
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = if (state.listening) "듣는 중…" else "말로 물어보기  \"오늘 어땠어?\"",
-            color = if (state.listening) Night else Glass,
-            fontSize = 28.sp,
-            modifier = Modifier
-                .clip(RoundedCornerShape(14.dp))
-                .background(if (state.listening) Good else Panel)
-                .clickable { onAsk() }
-                .padding(horizontal = 26.dp, vertical = 16.dp),
-        )
-        state.heard?.let { Text("“$it”", color = Dim, fontSize = 26.sp) }
-        state.answer?.let { Text(it, color = Water, fontSize = 28.sp, lineHeight = 38.sp) }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            Text(
+                text = if (state.listening) "듣고 있어요… 누르면 취소" else "말로 물어보기",
+                color = if (state.listening) Night else Glass,
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(Corner))
+                    .background(if (state.listening) Good else Panel)
+                    .clickable { onAsk() }
+                    .padding(horizontal = 30.dp, vertical = 22.dp),
+            )
+            if (!state.listening && state.answer == null) {
+                Text("“오늘 어땠어?”", color = Dim, fontSize = 28.sp)
+            }
+        }
+        state.heard?.let { Text("“$it”", color = Dim, fontSize = 28.sp) }
+        state.answer?.let { Text(it, color = Water, fontSize = 32.sp, lineHeight = 44.sp) }
     }
 }
 
-/** 컵과 물. 좌우 기울기는 수면의 경사로, 앞뒤 기울기는 수위와 물결로 표현한다. */
+/** 컵과 물. 좌우 기울기는 수면의 경사로, 앞뒤 기울기는 수위와 물결로 표현한다. 넘친 물은 벽을 타고 흘러 바닥에 고인다. */
 @Composable
 private fun Cup(cup: CupState, modifier: Modifier = Modifier) {
     var frame by remember { mutableLongStateOf(0L) }
+    // 물이 흘러내린 쪽(왼쪽, 오른쪽). 새 컵으로 시작하면 지운다.
+    val wet = remember { BooleanArray(2) }
     LaunchedEffect(Unit) {
         while (true) withFrameMillis { frame = it }
     }
-    Canvas(modifier) { drawCup(cup, frame / 1000f) }
+    Canvas(modifier) {
+        if (cup.spilledMl <= 0f && !cup.spilling) wet.fill(false)
+        if (!cup.spilling && cup.spilledMl > 0.3f && !wet[0] && !wet[1]) wet.fill(true)
+        if (cup.spilling) {
+            val lateral = abs(cup.tiltLat) > abs(cup.tiltLong)
+            if (!lateral || cup.tiltLat < 0f) wet[0] = true
+            if (!lateral || cup.tiltLat > 0f) wet[1] = true
+        }
+        drawCup(cup, frame / 1000f, wet)
+    }
 }
 
-private fun DrawScope.drawCup(cup: CupState, timeSec: Float) {
-    val cupHeight = size.height * 0.72f
-    val topWidth = minOf(size.width * 0.62f, cupHeight * 0.78f)
-    val bottomWidth = topWidth * 0.72f
+private fun DrawScope.drawCup(cup: CupState, timeSec: Float, wet: BooleanArray) {
+    val cupHeight = minOf(size.height * 0.64f, size.width * 1.1f)
+    val topWidth = minOf(size.width * 0.72f, cupHeight * 0.8f)
+    val bottomWidth = topWidth * 0.7f
     val cx = size.width / 2f
-    val top = (size.height - cupHeight) / 2f
+    val top = (size.height - cupHeight) / 2f - size.height * 0.04f
     val bottom = top + cupHeight
+    val wall = topWidth * 0.028f
+
+    // 컵 뒤 은은한 빛
+    drawCircle(
+        brush = Brush.radialGradient(
+            listOf(Water.copy(alpha = 0.16f), Color.Transparent),
+            center = Offset(cx, top + cupHeight * 0.55f),
+            radius = cupHeight * 0.95f,
+        ),
+        radius = cupHeight * 0.95f,
+        center = Offset(cx, top + cupHeight * 0.55f),
+    )
+
+    // 바닥 그림자와 고인 물
+    val floorY = bottom + wall
+    drawOval(
+        color = Color.Black.copy(alpha = palette.shadow),
+        topLeft = Offset(cx - bottomWidth * 0.62f, floorY - bottomWidth * 0.06f),
+        size = Size(bottomWidth * 1.24f, bottomWidth * 0.12f),
+    )
+    if (cup.spilledMl > 0.3f) {
+        val spread = sqrt((cup.spilledMl / 120f).coerceIn(0f, 1f))
+        val rx = bottomWidth * 0.6f + (size.width * 0.47f - bottomWidth * 0.6f) * spread
+        val ry = (rx * 0.13f).coerceAtMost(size.height * 0.07f)
+        val wobble = sin(timeSec * 1.3f) * rx * 0.012f
+        // 여러 타원을 겹쳐 번진 물 모양을 만든다
+        val blobs = listOf(
+            Triple(0f, 1f, 1f),
+            Triple(-0.34f * (if (wet[0]) 1f else 0.4f), 0.72f, 0.82f),
+            Triple(0.3f * (if (wet[1]) 1f else 0.4f), 0.78f, 0.9f),
+        )
+        blobs.forEach { (dx, sx, sy) ->
+            val w = rx * sx + wobble
+            val h = ry * sy
+            drawOval(
+                brush = Brush.verticalGradient(
+                    listOf(Water.copy(alpha = 0.75f), WaterDeep.copy(alpha = 0.85f)),
+                    startY = floorY - h, endY = floorY + h,
+                ),
+                topLeft = Offset(cx + dx * rx - w, floorY - h),
+                size = Size(w * 2f, h * 2f),
+            )
+        }
+        // 고인 물 위 반사광
+        drawOval(
+            color = Color.White.copy(alpha = 0.22f),
+            topLeft = Offset(cx - rx * 0.55f, floorY - ry * 0.55f),
+            size = Size(rx * 0.5f, ry * 0.28f),
+        )
+    }
 
     val glass = Path().apply {
         moveTo(cx - topWidth / 2f, top)
@@ -348,21 +456,26 @@ private fun DrawScope.drawCup(cup: CupState, timeSec: Float) {
         addPath(glass)
         close()
     }
+    // 유리 몸통의 옅은 비침
+    drawPath(inside, GlassEdge.copy(alpha = 0.08f))
 
     // 쏟은 만큼 수위가 내려간다
     val fill = (0.8f * (1f - cup.spilledMl / CUP_ML)).coerceIn(0.08f, 0.8f)
     val level = bottom - cupHeight * fill
     val slope = tan(cup.tiltLat.coerceIn(-0.6f, 0.6f)) * 1.6f
     val surge = cup.tiltLong * cupHeight * 0.9f
-    val ripple = (kotlin.math.abs(cup.tiltLong) + kotlin.math.abs(cup.tiltLat)) * cupHeight * 0.12f + 3f
-
-    val water = Path().apply {
-        val left = cx - topWidth / 2f
-        val right = cx + topWidth / 2f
-        val steps = 40
+    val ripple = (abs(cup.tiltLong) + abs(cup.tiltLat)) * cupHeight * 0.12f + 3f
+    val left = cx - topWidth / 2f
+    val right = cx + topWidth / 2f
+    val steps = 48
+    fun surfaceY(i: Int, shift: Float): Float {
+        val x = left + (right - left) * i / steps
+        return level - surge + (x - cx) * slope + sin(i * 0.42f + timeSec * 5f + shift) * ripple
+    }
+    fun waterPath(shift: Float, lift: Float) = Path().apply {
         for (i in 0..steps) {
             val x = left + (right - left) * i / steps
-            val y = level - surge + (x - cx) * slope + sin(i * 0.5f + timeSec * 5f) * ripple
+            val y = surfaceY(i, shift) - lift
             if (i == 0) moveTo(x, y) else lineTo(x, y)
         }
         lineTo(right, bottom)
@@ -370,29 +483,98 @@ private fun DrawScope.drawCup(cup: CupState, timeSec: Float) {
         close()
     }
     clipPath(inside) {
-        drawPath(water, WaterDeep)
-        drawPath(water, Water.copy(alpha = 0.55f))
+        // 뒤쪽 물결(옅게) + 앞쪽 물(세로 그라데이션)
+        drawPath(waterPath(1.7f, ripple * 0.8f + 6f), Water.copy(alpha = 0.35f))
+        drawPath(
+            waterPath(0f, 0f),
+            Brush.verticalGradient(listOf(Water.copy(alpha = 0.85f), Water, WaterDeep), startY = level - ripple, endY = bottom),
+        )
+        // 수면 반사선
+        val surface = Path().apply {
+            for (i in 0..steps) {
+                val x = left + (right - left) * i / steps
+                if (i == 0) moveTo(x, surfaceY(i, 0f)) else lineTo(x, surfaceY(i, 0f))
+            }
+        }
+        drawPath(surface, Color.White.copy(alpha = 0.55f), style = Stroke(width = 5f))
+        // 떠오르는 기포
+        for (i in 0 until 6) {
+            val phase = (timeSec * (0.12f + i * 0.02f) + i * 0.37f) % 1f
+            val bx = cx + bottomWidth * 0.38f * sin(i * 2.1f + timeSec * 0.6f)
+            val by = bottom - (bottom - level) * phase
+            drawCircle(Color.White.copy(alpha = 0.22f * (1f - phase)), radius = 5f + i % 3 * 3f, center = Offset(bx, by))
+        }
     }
+
+    // 유리: 두꺼운 바닥, 벽, 세로 반사광
+    val rimColor = if (cup.spilling) Warn else GlassEdge
+    drawLine(
+        GlassEdge.copy(alpha = 0.7f),
+        Offset(cx - bottomWidth / 2f, bottom - wall * 0.2f),
+        Offset(cx + bottomWidth / 2f, bottom - wall * 0.2f),
+        strokeWidth = wall * 2.2f,
+        cap = StrokeCap.Round,
+    )
     drawPath(
         glass,
-        if (cup.spilling) Warn else Glass,
-        style = Stroke(width = 10f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+        Brush.verticalGradient(listOf(rimColor, GlassEdge.copy(alpha = 0.6f)), startY = top, endY = bottom),
+        style = Stroke(width = wall, cap = StrokeCap.Round, join = StrokeJoin.Round),
+    )
+    fun wallX(side: Float, t: Float) = cx + side * (topWidth / 2f + (bottomWidth - topWidth) / 2f * t)
+    drawLine(
+        Color.White.copy(alpha = 0.28f),
+        Offset(wallX(-1f, 0.08f) + wall * 2.4f, top + cupHeight * 0.08f),
+        Offset(wallX(-1f, 0.7f) + wall * 2.4f, top + cupHeight * 0.7f),
+        strokeWidth = wall * 0.9f,
+        cap = StrokeCap.Round,
+    )
+    drawLine(
+        Color.White.copy(alpha = 0.14f),
+        Offset(wallX(1f, 0.15f) - wall * 2.2f, top + cupHeight * 0.15f),
+        Offset(wallX(1f, 0.45f) - wall * 2.2f, top + cupHeight * 0.45f),
+        strokeWidth = wall * 0.6f,
+        cap = StrokeCap.Round,
     )
 
-    if (cup.spilling) {
-        // 넘치는 쪽 컵 가장자리에서 물방울이 떨어진다
-        val side = when {
-            kotlin.math.abs(cup.tiltLat) > kotlin.math.abs(cup.tiltLong) -> if (cup.tiltLat > 0f) 1f else -1f
-            else -> if ((timeSec * 2f).toInt() % 2 == 0) 1f else -1f
+    // 컵 바깥벽을 타고 흐르는 물: 넘치는 동안은 굵게, 그 뒤에는 젖은 자국으로 남는다
+    listOf(-1f, 1f).forEachIndexed { index, side ->
+        if (!wet[index]) return@forEachIndexed
+        val out = side * wall * 1.3f
+        val flowing = cup.spilling
+        val stream = Path().apply {
+            moveTo(wallX(side, 0f) + out, top)
+            for (k in 1..12) {
+                val t = k / 12f
+                val wiggle = sin(t * 9f + index * 2f) * wall * 0.5f
+                lineTo(wallX(side, t) + out + wiggle, top + cupHeight * t)
+            }
         }
-        val startX = cx + side * (topWidth / 2f + 14f)
-        for (i in 0 until 5) {
-            val phase = (timeSec * 1.6f + i * 0.2f) % 1f
-            drawCircle(
-                color = Water.copy(alpha = 1f - phase),
-                radius = 13f - 7f * phase,
-                center = Offset(startX + side * 28f * phase, top + cupHeight * 0.6f * phase),
-            )
+        drawPath(
+            stream,
+            Water.copy(alpha = if (flowing) 0.9f else 0.32f),
+            style = Stroke(width = if (flowing) wall * 1.5f else wall * 0.8f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+        )
+        if (flowing) {
+            for (k in 0 until 5) {
+                val t = (timeSec * 1.5f + k * 0.2f) % 1f
+                drawCircle(
+                    Color.White.copy(alpha = 0.7f * (1f - t * 0.5f)),
+                    radius = wall * (0.9f - 0.3f * t),
+                    center = Offset(wallX(side, t) + out, top + cupHeight * t),
+                )
+            }
+            // 가장자리에서 튀는 물방울
+            for (k in 0 until 3) {
+                val t = (timeSec * 1.9f + k * 0.33f) % 1f
+                drawCircle(
+                    Water.copy(alpha = 1f - t),
+                    radius = wall * (1f - 0.5f * t),
+                    center = Offset(
+                        wallX(side, 0f) + side * (wall * 2f + topWidth * 0.12f * t),
+                        top - cupHeight * 0.05f * sin(t * 3.14f) + cupHeight * 0.12f * t * t,
+                    ),
+                )
+            }
         }
     }
 }

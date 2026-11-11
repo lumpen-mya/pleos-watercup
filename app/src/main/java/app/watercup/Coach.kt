@@ -6,6 +6,7 @@ import app.watercup.engine.CupState
 import app.watercup.engine.BumpCrossing
 import app.watercup.engine.LaneChangeWatch
 import app.watercup.engine.RimTuning
+import app.watercup.engine.SpeechGate
 import app.watercup.engine.SpeedWatch
 import app.watercup.engine.SpillCause
 import app.watercup.engine.SpillEvent
@@ -104,7 +105,7 @@ class Coach private constructor(app: Application) {
     private var phase = Phase.READY
     private var lastCause: SpillCause? = null
     private var lastCauseAt = 0L
-    private var lastSpokenAt = 0L
+    private val speechGate = SpeechGate(SPEAK_GAP_MS)
     private var sensitivity = store.sensitivity
     private var rimOffset = store.rimOffset(sensitivity)
     private var passengerComfortable: Boolean? = null
@@ -224,8 +225,7 @@ class Coach private constructor(app: Application) {
                     if (!change.withSignal) {
                         laneChangesNoSignal++
                         laneNoticeAt = now
-                        if (careMode && now - lastSpokenAt > SPEAK_GAP_MS) {
-                            lastSpokenAt = now
+                        if (careMode && speechGate.allow(now)) {
                             voice.say("차선을 바꿀 때는 방향지시등을 켜 주세요.")
                         }
                     }
@@ -294,8 +294,8 @@ class Coach private constructor(app: Application) {
         val turn = preview.check(next?.label, next?.distanceM, mps) ?: return
         upcomingTurn = next
         upcomingAt = now
-        if (careMode) {
-            lastSpokenAt = now
+        // 화면 표시는 그대로 두고, 음성만 넘침·차선 안내와 같은 간격을 지킨다
+        if (careMode && speechGate.allow(now)) {
             voice.say("곧 $turn, 미리 속도를 줄여 주세요.")
         }
     }
@@ -304,8 +304,7 @@ class Coach private constructor(app: Application) {
         lastCause = event.cause
         lastCauseAt = now
         // 주행 중 음성은 동승자가 있을 때(케어 주행)만, 넘친 직후 한 번만 낸다
-        if (careMode && now - lastSpokenAt > SPEAK_GAP_MS) {
-            lastSpokenAt = now
+        if (careMode && speechGate.allow(now)) {
             voice.say(event.cause.tip())
         }
     }

@@ -21,6 +21,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CoachService.start(this)
         if (checkSelfPermission(CarSpeedSource.PERMISSION) == PackageManager.PERMISSION_GRANTED) {
             viewModel.startSpeed()
         } else {
@@ -34,7 +35,19 @@ class MainActivity : ComponentActivity() {
                 onAsk = viewModel::askByVoice,
                 onPassenger = viewModel::passengerFeedback,
                 onRestore = viewModel::restoreDefaultRim,
+                // 작은 화면 모드를 넓은 화면에서 확인할 때: am start --ez compact true
+                forceCompact = intent?.getBooleanExtra("compact", false) == true,
             )
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        viewModel.setVisible(true)
+    }
+
+    override fun onStop() {
+        viewModel.setVisible(false)
+        super.onStop()
     }
 }

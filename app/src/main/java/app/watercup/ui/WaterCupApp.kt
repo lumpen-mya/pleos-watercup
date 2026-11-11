@@ -1,11 +1,15 @@
 package app.watercup.ui
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -42,6 +46,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.watercup.Phase
 import app.watercup.Sensitivity
+import app.watercup.TripRecord
+import app.watercup.trendText
 import app.watercup.compareText
 import app.watercup.UiState
 import app.watercup.engine.CupState
@@ -85,6 +91,7 @@ private val Good get() = palette.good
 
 private const val CUP_ML = 300f
 private val Corner = 16.dp
+private val COMPACT_WIDTH = 1000.dp
 
 @Composable
 fun WaterCupApp(
@@ -93,19 +100,86 @@ fun WaterCupApp(
     onAsk: () -> Unit = {},
     onPassenger: (Boolean) -> Unit = {},
     onRestore: () -> Unit = {},
+    forceCompact: Boolean = false,
 ) {
     palette = if (isSystemInDarkTheme()) DarkPalette else LightPalette
+    // 물이 넘치는 동안 배경이 살짝 물들어 화면을 자세히 보지 않아도 알 수 있다
+    val spillTint by animateFloatAsState(
+        targetValue = if (state.phase == Phase.DRIVING && state.cup.spilling) 0.1f else 0f,
+        animationSpec = tween(if (state.cup.spilling) 120 else 900),
+        label = "spillTint",
+    )
     Box(
         Modifier
             .fillMaxSize()
             .background(Night)
+            .background(Warn.copy(alpha = spillTint))
             .padding(32.dp)
     ) {
-        when (state.phase) {
-            Phase.READY -> ReadyScreen(state, onSensitivity, onAsk, onRestore)
-            Phase.DRIVING -> DrivingScreen(state)
-            Phase.REVIEW -> ReviewScreen(state, onAsk, onPassenger)
+        // 분할 화면처럼 창이 좁으면 컵과 핵심 숫자만 남긴 작은 화면으로 바꾼다
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val compact = forceCompact || maxWidth < COMPACT_WIDTH
+            Crossfade(targetState = state.phase, animationSpec = tween(450), label = "phase") { phase ->
+                when (phase) {
+                    Phase.READY -> if (compact) CompactReady(state, onSensitivity) else ReadyScreen(state, onSensitivity, onAsk, onRestore)
+                    Phase.DRIVING -> if (compact) CompactDriving(state) else DrivingScreen(state)
+                    Phase.REVIEW -> if (compact) CompactReview(state, onPassenger) else ReviewScreen(state, onAsk, onPassenger)
+                }
+            }
         }
+    }
+}
+
+/** 작은 화면 · 대기: 컵, 시작 방법, 민감도만. */
+@Composable
+private fun CompactReady(state: UiState, onSensitivity: (Sensitivity) -> Unit) {
+    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Cup(state.cup, Modifier.weight(1f).fillMaxWidth())
+        Text("찰랑", color = Glass, fontSize = 64.sp, fontWeight = FontWeight.Bold)
+        Text("기어를 D에 넣으면 시작해요.", color = Water, fontSize = 34.sp, fontWeight = FontWeight.Medium)
+        SensitivityChips(state, onSensitivity)
+        trendText(state.history)?.let { Text(it, color = Dim, fontSize = 28.sp) }
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+/** 작은 화면 · 주행: 컵과 쏟은 양, 한마디만. 내비 옆에 띄워 두는 용도. */
+@Composable
+private fun CompactDriving(state: UiState) {
+    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Cup(state.cup, Modifier.weight(1f).fillMaxWidth())
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                "%.0f".format(state.cup.spilledMl),
+                color = if (state.cup.spilling) Warn else Glass,
+                fontSize = 120.sp,
+                fontWeight = FontWeight.Bold,
+                lineHeight = 120.sp,
+            )
+            Text(" ml", color = Dim, fontSize = 44.sp, modifier = Modifier.padding(bottom = 22.dp))
+        }
+        DrivingMessage(state)
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+/** 작은 화면 · 도착: 횟수, 가장 많은 원인의 조언, 동승자 확인. */
+@Composable
+private fun CompactReview(state: UiState, onPassenger: (Boolean) -> Unit) {
+    val cup = state.cup
+    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Cup(cup, Modifier.weight(1f).fillMaxWidth())
+        if (cup.events.isEmpty()) {
+            Text("한 방울도 쏟지 않았어요", color = Good, fontSize = 48.sp, fontWeight = FontWeight.Bold)
+        } else {
+            Text("${cup.events.size}번 쏟았어요", color = Glass, fontSize = 64.sp, fontWeight = FontWeight.Bold)
+            cup.events.groupingBy { it.cause }.eachCount().maxByOrNull { it.value }?.let { top ->
+                Text("${top.key.label()} ${top.value}번 · ${top.key.tip()}", color = Water, fontSize = 30.sp)
+            }
+        }
+        compareText(cup.events.size, state.previous)?.let { Text(it, color = Dim, fontSize = 30.sp) }
+        PassengerRow(state, onPassenger)
+        Spacer(Modifier.height(8.dp))
     }
 }
 
@@ -127,43 +201,11 @@ private fun ReadyScreen(state: UiState, onSensitivity: (Sensitivity) -> Unit, on
 
             Spacer(Modifier.height(8.dp))
             Text("누구와 타나요?", color = Dim, fontSize = 28.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Sensitivity.entries.forEach { option ->
-                    val selected = option == state.sensitivity
-                    Text(
-                        text = option.label,
-                        color = if (selected) Night else Glass,
-                        fontSize = 32.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(Corner))
-                            .background(if (selected) Water else Panel)
-                            .clickable { onSensitivity(option) }
-                            .padding(horizontal = 30.dp, vertical = 22.dp),
-                    )
-                }
-            }
+            SensitivityChips(state, onSensitivity)
 
             RimLine(state, onRestore)
-            Text(
-                if (state.naviReady) "길 안내 중에는 과속방지턱과 제한속도도 함께 봐요."
-                else "내비와 연결되면 과속방지턱과 제한속도도 함께 봐요.",
-                color = Dim,
-                fontSize = 26.sp,
-            )
 
-            if (state.history.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text("최근 주행", color = Dim, fontSize = 28.sp)
-                state.history.take(3).forEach { trip ->
-                    Text(
-                        text = "%.1f km · %s · ".format(trip.distanceM / 1000f, formatDuration(trip.durationSec)) +
-                            if (trip.spills == 0) "쏟지 않음" else "${trip.spills}번 · %.0f ml 쏟음".format(trip.spilledMl),
-                        color = if (trip.spills == 0) Good else Glass,
-                        fontSize = 32.sp,
-                    )
-                }
-            }
+            Trend(state.history)
 
             Spacer(Modifier.height(8.dp))
             AskRow(state, onAsk)
@@ -172,13 +214,87 @@ private fun ReadyScreen(state: UiState, onSensitivity: (Sensitivity) -> Unit, on
     }
 }
 
+@Composable
+private fun SensitivityChips(state: UiState, onSensitivity: (Sensitivity) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Sensitivity.entries.forEach { option ->
+            val selected = option == state.sensitivity
+            Text(
+                text = option.label,
+                color = if (selected) Night else Glass,
+                fontSize = 32.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(Corner))
+                    .background(if (selected) Water else Panel)
+                    .clickable { onSensitivity(option) }
+                    .padding(horizontal = 30.dp, vertical = 22.dp),
+            )
+        }
+    }
+}
+
+/** 주행 중 한마디: 방금 쏟은 원인, 차선 변경, 다가오는 회전·과속방지턱, 제한속도 순으로 하나만 보여 준다. */
+@Composable
+private fun DrivingMessage(state: UiState) {
+    val cause = state.lastCause
+    val turn = state.upcomingTurn
+    val alert = cause != null || state.laneNotice || (turn == null && state.overLimit)
+    val message = cause?.label()
+        ?: "방향지시등 없이 차선 변경".takeIf { state.laneNotice }
+        ?: turn?.let { "곧 ${it.label}" }
+        ?: state.speedLimitKph?.takeIf { state.overLimit }?.let { "제한속도 $it km/h" }
+    val tone = if (alert) Warn else Water
+    Text(
+        text = message ?: " ",
+        color = tone,
+        fontSize = 44.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier
+            .clip(RoundedCornerShape(Corner))
+            .background(if (message != null) tone.copy(alpha = 0.12f) else Color.Transparent)
+            .padding(horizontal = 26.dp, vertical = 14.dp),
+    )
+}
+
+/** 주행별 쏟은 횟수 막대(왼쪽이 오래된 주행)와 나아지는지 한 줄. */
+@Composable
+private fun Trend(history: List<TripRecord>) {
+    if (history.isEmpty()) return
+    val trips = history.take(8).reversed()
+    val max = trips.maxOf { it.spills }.coerceAtLeast(1)
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Spacer(Modifier.height(4.dp))
+        Text("쏟은 횟수 · 최근 ${trips.size}번 주행", color = Dim, fontSize = 28.sp)
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            trips.forEachIndexed { index, trip ->
+                val latest = index == trips.lastIndex
+                val color = if (trip.spills == 0) Good else Water
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "${trip.spills}",
+                        color = if (latest) Glass else Dim,
+                        fontSize = 26.sp,
+                        fontWeight = if (latest) FontWeight.Bold else FontWeight.Normal,
+                    )
+                    Box(
+                        Modifier
+                            .width(44.dp)
+                            .height((8 + 82 * trip.spills / max).dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(color.copy(alpha = if (latest) 1f else 0.4f))
+                    )
+                }
+            }
+        }
+        trendText(history)?.let { Text(it, color = Water, fontSize = 30.sp, fontWeight = FontWeight.Medium) }
+    }
+}
+
 /** 도착 리뷰의 주행 체크: 신호를 받은 항목만 한 줄씩 보여 준다. */
 @Composable
 private fun DriveChecks(state: UiState) {
     val lines = buildList {
-        if (VehicleSignals.BELT in state.signals.live) {
-            add(if (state.beltSec < 1f) true to "안전벨트를 모두 맸어요." else false to "안전벨트를 매지 않은 채 ${formatDuration(state.beltSec)} 달렸어요.")
-        }
         if (state.laneChanges > 0) {
             add(
                 if (state.laneChangesNoSignal == 0) true to "차선 변경 ${state.laneChanges}번 모두 방향지시등을 켰어요."
@@ -328,18 +444,7 @@ private fun DrivingScreen(state: UiState) {
             Spacer(Modifier.height(8.dp))
             val cause = state.lastCause
             val turn = state.upcomingTurn
-            Text(
-                text = cause?.label()
-                    ?: "방향지시등 없이 차선 변경".takeIf { state.laneNotice }
-                    ?: "뒷좌석 안전벨트 확인".takeIf { state.signals.beltWarnRear }
-                    ?: "안전벨트 확인".takeIf { state.signals.beltWarnFront }
-                    ?: turn?.let { "곧 ${it.label}" }
-                    ?: state.speedLimitKph?.takeIf { state.overLimit }?.let { "제한속도 $it km/h" }
-                    ?: " ",
-                color = if (cause != null || state.laneNotice || state.signals.beltWarnRear || state.signals.beltWarnFront || (turn == null && state.overLimit)) Warn else Water,
-                fontSize = 44.sp,
-                fontWeight = FontWeight.Medium,
-            )
+            DrivingMessage(state)
         }
     }
 }
@@ -358,12 +463,14 @@ private fun ReviewScreen(state: UiState, onAsk: () -> Unit, onPassenger: (Boolea
         Cup(cup, Modifier.weight(0.75f).fillMaxHeight())
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(22.dp)) {
             Text("이번 주행", color = Dim, fontSize = 36.sp)
-            Text(
-                if (clean) "한 방울도 쏟지 않았어요" else "${cup.events.size}번 쏟았어요",
-                color = if (clean) Good else Glass,
-                fontSize = if (clean) 54.sp else 84.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            if (clean) {
+                Text("한 방울도 쏟지 않았어요", color = Good, fontSize = 54.sp, fontWeight = FontWeight.Bold)
+            } else {
+                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text("${cup.events.size}", color = Glass, fontSize = 150.sp, fontWeight = FontWeight.Bold, lineHeight = 150.sp)
+                    Text("번 쏟았어요", color = Glass, fontSize = 52.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 30.dp))
+                }
+            }
             compareText(cup.events.size, state.previous)?.let {
                 Text(it, color = Water, fontSize = 38.sp, fontWeight = FontWeight.Medium)
             }

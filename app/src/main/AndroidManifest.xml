@@ -16,6 +16,11 @@
     <!-- Android Automotive 표준 차량 속도 -->
     <uses-permission android:name="android.car.permission.CAR_SPEED" />
 
+    <!-- 다른 앱을 보는 동안에도 기록·음성 코칭을 이어 가기 위한 서비스 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <uses-feature
         android:name="android.hardware.type.automotive"
         android:required="false" />
@@ -39,5 +44,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".CoachService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="주행 중 승차감 기록과 음성 코칭" />
+        </service>
     </application>
 </manifest>

@@ -24,3 +24,22 @@ fun answerFor(question: String, history: List<TripRecord>): String {
         }
     }
 }
+
+/**
+ * 기록이 쌓이면서 나아지는지 한 줄로 말한다. 최근 주행 묶음과 그 전 묶음의 평균 쏟은 횟수를 비교한다.
+ * history 는 최신순. 비교할 기록이 없으면 null.
+ */
+fun trendText(history: List<TripRecord>): String? {
+    val size = (history.size / 2).coerceAtMost(3)
+    if (size == 0) return null
+    val recent = history.take(size).map { it.spills }.average()
+    val older = history.drop(size).take(size).map { it.spills }.average()
+    val diff = recent - older
+    val label = if (size == 1) "지난 주행" else "그 전 ${size}번"
+    return when {
+        diff <= -0.5 -> "${label}보다 평균 %.1f번 줄었어요".format(-diff)
+        diff >= 0.5 -> "${label}보다 평균 %.1f번 늘었어요".format(diff)
+        recent == 0.0 -> "계속 한 방울도 쏟지 않고 있어요"
+        else -> "${label}과 비슷해요"
+    }
+}

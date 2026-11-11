@@ -33,4 +33,18 @@ class AnswersTest {
     fun `쏟지 않은 주행은 그렇게 답한다`() {
         assertTrue("한 방울도" in answerFor("결과 알려줘", listOf(trip())))
     }
+
+    @Test
+    fun `기록이 쌓이면 최근 묶음과 그 전 묶음을 비교한다`() {
+        val history = listOf(
+            trip(SpillCause.BRAKE to 1), trip(), trip(SpillCause.BRAKE to 2),
+            trip(SpillCause.BRAKE to 4), trip(SpillCause.BRAKE to 5), trip(SpillCause.BRAKE to 3),
+        )
+        assertTrue("그 전 3번보다 평균 3.0번 줄었어요" == trendText(history))
+    }
+
+    @Test
+    fun `기록이 하나뿐이면 추세를 말하지 않는다`() {
+        assertTrue(trendText(listOf(trip(SpillCause.BRAKE to 1))) == null)
+    }
 }

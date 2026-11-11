@@ -5,6 +5,7 @@
 사용: python3 tools/drive_demo.py [시나리오]
   smooth  부드러운 주행 (쏟지 않음)
   rough   급제동·회생제동·급조향이 섞인 주행 (기본값)
+  mild    페달 급해제와 급제동만 남은, 조금 나아진 주행
   park    P단으로 되돌리기만
 
 Virtual Console은 브라우저가 열려 있을 때만 값을 받으므로,
@@ -92,6 +93,20 @@ def smooth(car):
     car.gear("Park")
 
 
+def mild(car):
+    """조금 나아진 주행: 출발과 회전은 부드럽고, 페달 급해제와 급제동만 남는다."""
+    car.gear("Drive")
+    car.ramp(55, 12, accelerator=15, label="부드러운 출발")
+    car.hold(3, "정속")
+    car.ramp(25, 2, label="가속 페달 급해제(회생제동)")
+    car.hold(3)
+    car.ramp(50, 9, accelerator=15, label="부드러운 재가속")
+    car.hold(2)
+    car.ramp(0, 2.5, brake=80, label="급제동")
+    car.hold(2)
+    car.gear("Park")
+
+
 def rough(car):
     car.gear("Drive")
     car.ramp(60, 4, accelerator=70, label="급가속")
@@ -118,6 +133,8 @@ def main():
     try:
         if name == "smooth":
             smooth(car)
+        elif name == "mild":
+            mild(car)
         elif name == "park":
             car.send()
             car.gear("Park")

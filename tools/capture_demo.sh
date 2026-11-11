@@ -31,6 +31,10 @@ wait_s 30; shot 05-review-rough.png
 wait "$REC"
 adb pull /sdcard/watercup-demo.mp4 docs/demo/watercup-demo.mp4 | tail -1
 
+echo "조금 나아진 주행 (기록용)"
+python3 tools/drive_demo.py mild > /dev/null
+wait_s 3
+
 echo "부드러운 주행"
 python3 tools/drive_demo.py smooth > /dev/null &
 wait_s 12; shot 02-driving-smooth.png

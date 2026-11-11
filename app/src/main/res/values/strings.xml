@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">찰랑</string>
+    <string name="coach_channel">주행 코칭</string>
+    <string name="coach_running">주행을 보고 있어요. 누르면 물컵이 열려요.</string>
 </resources>

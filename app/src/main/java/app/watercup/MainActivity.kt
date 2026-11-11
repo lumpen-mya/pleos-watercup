@@ -28,7 +28,13 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             val state by viewModel.ui.collectAsStateWithLifecycle()
-            WaterCupApp(state, onSensitivity = viewModel::selectSensitivity, onAsk = viewModel::askByVoice)
+            WaterCupApp(
+                state,
+                onSensitivity = viewModel::selectSensitivity,
+                onAsk = viewModel::askByVoice,
+                onPassenger = viewModel::passengerFeedback,
+                onRestore = viewModel::restoreDefaultRim,
+            )
         }
     }
 }

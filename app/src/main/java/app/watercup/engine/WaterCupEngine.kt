@@ -19,6 +19,9 @@ enum class SpillCause {
 
     /** 급조향 */
     STEER,
+
+    /** 과속방지턱을 빠르게 넘음 */
+    SPEED_BUMP,
 }
 
 data class SpillEvent(
@@ -50,7 +53,7 @@ data class CupState(
  */
 class WaterCupEngine(
     /** 물이 넘치기 시작하는 기울기(도). 작을수록 민감 */
-    rimDeg: Float = 13f,
+    rimDeg: Float = 11.5f,
     private val wheelbaseM: Float = 2.9f,
     private val steeringRatio: Float = 15f,
 ) {
@@ -101,6 +104,20 @@ class WaterCupEngine(
             remaining -= dt
         }
         return started
+    }
+
+    /**
+     * 과속방지턱을 넘은 순간의 속도로 넘침을 기록한다.
+     * 기준 30 km/h 는 초기값이다(설계 선택). 설치 지침 원문에서 수치를 확인하지 못했다.
+     */
+    fun bump(speedKph: Float): SpillEvent? {
+        if (speedKph <= BUMP_COMFORT_KPH) return null
+        val ml = ((speedKph - BUMP_COMFORT_KPH) * 1.5f).coerceIn(5f, 40f)
+        val event = SpillEvent(elapsed, SpillCause.SPEED_BUMP, speedKph, ml)
+        spilledMl += ml
+        events.add(event)
+        lastEventAt = elapsed
+        return event
     }
 
     fun state() = CupState(tiltLong, tiltLat, spilling, spilledMl, distanceM, elapsed, events.toList())
@@ -193,5 +210,6 @@ class WaterCupEngine(
         const val SPILL_RATE = 40f
         const val EVENT_GAP_SEC = 1.5f
         const val MIN_EVENT_ML = 0.5f
+        const val BUMP_COMFORT_KPH = 30f
     }
 }

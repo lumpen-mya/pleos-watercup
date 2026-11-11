@@ -1,7 +1,9 @@
 package app.watercup.signal
 
+import ai.pleos.playground.navi.constants.CautionPointType
 import ai.pleos.playground.navi.constants.NaviErrorCode
 import ai.pleos.playground.navi.constants.TurnType
+import ai.pleos.playground.navi.data.CautionPoint
 import ai.pleos.playground.navi.data.TBTInfo
 import ai.pleos.playground.navi.helper.NaviHelper
 import ai.pleos.playground.navi.helper.listener.NaviHelperEventListener
@@ -20,6 +22,14 @@ class NaviGuide(context: Context) {
     @Volatile var next: NextTurn? = null
         private set
 
+    /** 가장 가까운 과속방지턱까지 남은 거리(m). 안내가 없으면 null */
+    @Volatile var bumpM: Int? = null
+        private set
+
+    /** 지금 달리는 도로의 제한속도(km/h). 모르면 null */
+    @Volatile var speedLimitKph: Int? = null
+        private set
+
     @Volatile var error: String? = null
         private set
 
@@ -31,8 +41,24 @@ class NaviGuide(context: Context) {
             }
         }
 
+        override fun onCautionPointInfo(cautionPoints: List<CautionPoint>) {
+            bumpM = cautionPoints
+                .filter { it.type == CautionPointType.SPEED_BUMP }
+                .minOfOrNull { it.remainDistance }
+        }
+
+        override fun onCurrentRoadSpeedLimit(speedLimit: Int) {
+            speedLimitKph = speedLimit.takeIf { it > 0 }
+        }
+
         override fun onRouteCancelled() {
             next = null
+            bumpM = null
+        }
+
+        override fun onRouteEnded() {
+            next = null
+            bumpM = null
         }
 
         override fun onError(errorCode: NaviErrorCode) {

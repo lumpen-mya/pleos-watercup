@@ -5,6 +5,10 @@ import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.watercup.engine.CupState
+import app.watercup.engine.BumpCrossing
+import app.watercup.engine.LaneChangeWatch
+import app.watercup.engine.RimTuning
+import app.watercup.engine.SpeedWatch
 import app.watercup.engine.SpillCause
 import app.watercup.engine.SpillEvent
 import app.watercup.engine.TurnPreview
@@ -47,6 +51,26 @@ data class UiState(
     /** 음성 질문으로 들은 말과 그 답 */
     val heard: String? = null,
     val answer: String? = null,
+    /** 지금 적용되는 넘침 기준(도)과 기본값 대비 보정값 */
+    val rimDeg: Float = Sensitivity.NORMAL.rimDeg,
+    val rimOffsetDeg: Float = 0f,
+    /** 이번 도착 리뷰에서 받은 동승자 답. 아직 안 받았으면 null */
+    val passengerComfortable: Boolean? = null,
+    /** 동승자 답으로 기준이 바뀐 방향: -1 민감하게, 0 그대로, +1 여유 있게 */
+    val rimChange: Int = 0,
+    /** 길 안내 중 받은 제한속도와 이번 주행의 초과 기록 */
+    val speedLimitKph: Int? = null,
+    val overLimit: Boolean = false,
+    val overLimitSec: Float = 0f,
+    val maxOverKph: Float = 0f,
+    val hasSpeedLimit: Boolean = false,
+    /** 이번 주행의 차선 변경 횟수와 그중 방향지시등을 켜지 않은 횟수 */
+    val laneChanges: Int = 0,
+    val laneChangesNoSignal: Int = 0,
+    /** 방금 방향지시등 없이 차선을 바꿨는지. 주행 화면에서 잠깐 보여 준다 */
+    val laneNotice: Boolean = false,
+    /** 안전벨트를 매지 않은 채 달린 시간(초) */
+    val beltSec: Float = 0f,
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -57,6 +81,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val engine = WaterCupEngine()
     private val navi = NaviGuide(app)
     private val preview = TurnPreview()
+    private val bumpCrossing = BumpCrossing()
+    private val speedWatch = SpeedWatch()
+    private val laneWatch = LaneChangeWatch()
+    private var laneChanges = 0
+    private var laneChangesNoSignal = 0
+    private var laneNoticeAt = 0L
+    private var beltSec = 0f
+    private var beltSpokenAt = 0L
     private val ask = VoiceAsk(app) { text -> onHeard(text) }
 
     private val _ui = MutableStateFlow(UiState())
@@ -67,6 +99,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var lastCauseAt = 0L
     private var lastSpokenAt = 0L
     private var sensitivity = store.sensitivity
+    private var rimOffset = store.rimOffset(sensitivity)
+    private var passengerComfortable: Boolean? = null
+    private var rimChange = 0
     private var history = store.trips()
     private var previous: TripRecord? = null
     private var careMode = false
@@ -121,6 +156,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun selectSensitivity(value: Sensitivity) {
         sensitivity = value
         store.sensitivity = value
+        rimOffset = store.rimOffset(value)
+    }
+
+    /** 도착 리뷰에서 동승자 답을 받아 다음 주행의 넘침 기준을 맞춘다. 주행마다 한 번만 받는다. */
+    fun passengerFeedback(comfortable: Boolean) {
+        if (phase != Phase.REVIEW || passengerComfortable != null) return
+        val next = RimTuning.adjust(rimOffset, comfortable, engine.state().events.size)
+        rimChange = next.compareTo(rimOffset)
+        rimOffset = next
+        store.setRimOffset(sensitivity, next)
+        passengerComfortable = comfortable
+    }
+
+    /** 동승자 확인으로 바뀐 기준을 모두 지우고 기본값으로 되돌린다. */
+    fun restoreDefaultRim() {
+        if (phase == Phase.DRIVING) return
+        store.clearRimOffsets()
+        rimOffset = 0f
+        rimChange = 0
     }
 
     private fun tick(dt: Float, now: Long) {
@@ -133,8 +187,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // P단이 아니거나 차가 움직이면 새 주행으로 본다
                 if ((snap.gear == GearPos.DRIVE || snap.gear == GearPos.REVERSE) || (moving && snap.gear != GearPos.PARK)) {
                     engine.reset()
-                    engine.setRimDeg(sensitivity.rimDeg)
+                    engine.setRimDeg(RimTuning.rim(sensitivity.rimDeg, rimOffset))
+                    passengerComfortable = null
+                    rimChange = 0
                     preview.reset()
+                    bumpCrossing.reset()
+                    speedWatch.reset()
+                    laneWatch.reset()
+                    laneChanges = 0
+                    laneChangesNoSignal = 0
+                    laneNoticeAt = 0L
+                    beltSec = 0f
+                    beltSpokenAt = 0L
                     ask.cancel()
                     heard = null
                     answer = null
@@ -147,6 +211,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val signalOn = snap.turnSignal != null && snap.turnSignal != "OFF"
                 val event = engine.step(dt, mps, snap.steeringDeg, snap.brakePressed, signalOn)
                 if (event != null) onSpill(event, now)
+                // 과속방지턱을 넘은 순간의 속도로 한 번 더 판정한다
+                if (bumpCrossing.crossed(navi.bumpM)) engine.bump(mps * 3.6f)?.let { onSpill(it, now) }
+                speedWatch.step(dt, mps * 3.6f, navi.speedLimitKph)
+                if (moving) {
+                    if (snap.beltWarnFront || snap.beltWarnRear) {
+                        beltSec += dt
+                        // 안전벨트는 동승자 유무와 상관없이 항상 알린다
+                        if (beltSpokenAt == 0L || now - beltSpokenAt > BELT_REPEAT_MS) {
+                            beltSpokenAt = now
+                            lastSpokenAt = now
+                            voice.say(if (snap.beltWarnRear) "뒷좌석 안전벨트를 확인해 주세요." else "안전벨트를 매 주세요.")
+                        }
+                    }
+                }
+                laneWatch.step(dt, mps, snap.steeringDeg, signalOn)?.let { change ->
+                    laneChanges++
+                    if (!change.withSignal) {
+                        laneChangesNoSignal++
+                        laneNoticeAt = now
+                        if (careMode && now - lastSpokenAt > SPEAK_GAP_MS) {
+                            lastSpokenAt = now
+                            voice.say("차선을 바꿀 때는 방향지시등을 켜 주세요.")
+                        }
+                    }
+                }
                 previewTurn(mps, now)
                 if (snap.gear == GearPos.PARK && !moving) {
                     phase = Phase.REVIEW
@@ -183,6 +272,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             listening = ask.listening,
             heard = heard,
             answer = answer,
+            rimDeg = RimTuning.rim(sensitivity.rimDeg, rimOffset),
+            rimOffsetDeg = rimOffset,
+            passengerComfortable = passengerComfortable,
+            rimChange = rimChange,
+            speedLimitKph = navi.speedLimitKph,
+            overLimit = phase == Phase.DRIVING && speedWatch.over,
+            overLimitSec = speedWatch.overSec,
+            maxOverKph = speedWatch.maxOverKph,
+            hasSpeedLimit = speedWatch.hasLimit,
+            beltSec = beltSec,
+            laneChanges = laneChanges,
+            laneChangesNoSignal = laneChangesNoSignal,
+            laneNotice = phase == Phase.DRIVING && laneNoticeAt != 0L && now - laneNoticeAt < CAUSE_SHOW_MS,
         )
     }
 
@@ -192,7 +294,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             lastNaviPollAt = now
             navi.poll()
         }
-        val next = navi.next
+        // 회전 지점과 과속방지턱 중 더 가까운 쪽을 예고한다
+        val next = listOfNotNull(navi.next, navi.bumpM?.let { NextTurn("과속방지턱", it.toFloat()) })
+            .minByOrNull { it.distanceM }
         val turn = preview.check(next?.label, next?.distanceM, mps) ?: return
         upcomingTurn = next
         upcomingAt = now
@@ -228,6 +332,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         const val NAVI_POLL_MS = 2000L
         const val TURN_SHOW_MS = 6000L
         const val LISTEN_TIMEOUT_MS = 8000L
+        const val BELT_REPEAT_MS = 30000L
     }
 }
 
@@ -236,6 +341,7 @@ fun SpillCause.label() = when (this) {
     SpillCause.LIFT_OFF -> "가속 페달 급히 떼기"
     SpillCause.ACCEL -> "급가속"
     SpillCause.STEER -> "급핸들"
+    SpillCause.SPEED_BUMP -> "과속방지턱"
 }
 
 fun SpillCause.tip() = when (this) {
@@ -243,6 +349,7 @@ fun SpillCause.tip() = when (this) {
     SpillCause.LIFT_OFF -> "가속 페달은 천천히 떼어 주세요."
     SpillCause.ACCEL -> "출발할 때는 천천히 밟아 주세요."
     SpillCause.STEER -> "핸들은 미리, 천천히 돌려 주세요."
+    SpillCause.SPEED_BUMP -> "과속방지턱은 시속 30킬로미터 아래로 넘어 주세요."
 }
 
 /** 지난 주행과 쏟은 횟수를 비교한 한마디. 비교할 기록이 없으면 null */

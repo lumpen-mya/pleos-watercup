@@ -45,6 +45,7 @@ import app.watercup.Sensitivity
 import app.watercup.compareText
 import app.watercup.UiState
 import app.watercup.engine.CupState
+import app.watercup.engine.RimTuning
 import app.watercup.engine.SpillCause
 import app.watercup.label
 import app.watercup.signal.VehicleSignals
@@ -86,7 +87,13 @@ private const val CUP_ML = 300f
 private val Corner = 16.dp
 
 @Composable
-fun WaterCupApp(state: UiState, onSensitivity: (Sensitivity) -> Unit = {}, onAsk: () -> Unit = {}) {
+fun WaterCupApp(
+    state: UiState,
+    onSensitivity: (Sensitivity) -> Unit = {},
+    onAsk: () -> Unit = {},
+    onPassenger: (Boolean) -> Unit = {},
+    onRestore: () -> Unit = {},
+) {
     palette = if (isSystemInDarkTheme()) DarkPalette else LightPalette
     Box(
         Modifier
@@ -95,16 +102,16 @@ fun WaterCupApp(state: UiState, onSensitivity: (Sensitivity) -> Unit = {}, onAsk
             .padding(32.dp)
     ) {
         when (state.phase) {
-            Phase.READY -> ReadyScreen(state, onSensitivity, onAsk)
+            Phase.READY -> ReadyScreen(state, onSensitivity, onAsk, onRestore)
             Phase.DRIVING -> DrivingScreen(state)
-            Phase.REVIEW -> ReviewScreen(state, onAsk)
+            Phase.REVIEW -> ReviewScreen(state, onAsk, onPassenger)
         }
     }
 }
 
 /** 정차 중 대기 화면: 시작 방법, 민감도, 최근 기록, 차량 신호 연결 상태를 보여 준다. */
 @Composable
-private fun ReadyScreen(state: UiState, onSensitivity: (Sensitivity) -> Unit, onAsk: () -> Unit) {
+private fun ReadyScreen(state: UiState, onSensitivity: (Sensitivity) -> Unit, onAsk: () -> Unit, onRestore: () -> Unit) {
     Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
         Cup(state.cup, Modifier.weight(0.8f).fillMaxHeight())
         Column(Modifier.weight(1f).padding(start = 32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -137,6 +144,14 @@ private fun ReadyScreen(state: UiState, onSensitivity: (Sensitivity) -> Unit, on
                 }
             }
 
+            RimLine(state, onRestore)
+            Text(
+                if (state.naviReady) "길 안내 중에는 과속방지턱과 제한속도도 함께 봐요."
+                else "내비와 연결되면 과속방지턱과 제한속도도 함께 봐요.",
+                color = Dim,
+                fontSize = 26.sp,
+            )
+
             if (state.history.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text("최근 주행", color = Dim, fontSize = 28.sp)
@@ -155,6 +170,94 @@ private fun ReadyScreen(state: UiState, onSensitivity: (Sensitivity) -> Unit, on
             SignalStatus(state)
         }
     }
+}
+
+/** 도착 리뷰의 주행 체크: 신호를 받은 항목만 한 줄씩 보여 준다. */
+@Composable
+private fun DriveChecks(state: UiState) {
+    val lines = buildList {
+        if (VehicleSignals.BELT in state.signals.live) {
+            add(if (state.beltSec < 1f) true to "안전벨트를 모두 맸어요." else false to "안전벨트를 매지 않은 채 ${formatDuration(state.beltSec)} 달렸어요.")
+        }
+        if (state.laneChanges > 0) {
+            add(
+                if (state.laneChangesNoSignal == 0) true to "차선 변경 ${state.laneChanges}번 모두 방향지시등을 켰어요."
+                else false to "차선 변경 ${state.laneChanges}번 중 ${state.laneChangesNoSignal}번은 방향지시등을 켜지 않았어요."
+            )
+        }
+        if (state.hasSpeedLimit) {
+            add(
+                if (state.overLimitSec < 1f) true to "제한속도를 지켰어요."
+                else false to "제한속도 초과 %s · 최고 +%.0f km/h".format(formatDuration(state.overLimitSec), state.maxOverKph)
+            )
+        }
+    }
+    if (lines.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        lines.forEach { (ok, text) ->
+            Text(
+                (if (ok) "✓ " else "! ") + text,
+                color = if (ok) Good else Warn,
+                fontSize = 28.sp,
+            )
+        }
+    }
+}
+
+/** 지금 넘침 기준을 운전자가 아는 말(1초당 속도 변화)로 알려 주고, 바뀌어 있으면 기본값 복원 버튼을 보여 준다. */
+@Composable
+private fun RimLine(state: UiState, onRestore: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        val changed = state.rimOffsetDeg != 0f
+        Text(
+            "속도가 1초에 약 %.0f km/h 넘게 변하면 넘쳐요".format(RimTuning.kphPerSec(state.rimDeg)) +
+                if (changed) " · 동승자 의견 반영" else "",
+            color = Dim,
+            fontSize = 26.sp,
+        )
+        if (changed) Button("기본값으로 복원", small = true) { onRestore() }
+    }
+}
+
+/** 도착 후 동승자에게 한 번 묻는다. 답에 따라 다음 주행의 넘침 기준이 조금 바뀐다. */
+@Composable
+private fun PassengerRow(state: UiState, onPassenger: (Boolean) -> Unit) {
+    val answer = state.passengerComfortable
+    if (answer == null) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("같이 탄 분은 어땠나요? (선택)", color = Dim, fontSize = 28.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button("괜찮았어요") { onPassenger(true) }
+                Button("불편했어요") { onPassenger(false) }
+            }
+        }
+    } else {
+        Text(
+            when {
+                state.rimChange < 0 -> "다음 주행부터 조금 더 민감하게 볼게요."
+                state.rimChange > 0 -> "다음 주행부터 조금 더 여유 있게 볼게요."
+                answer -> "지금 기준이 잘 맞네요. 그대로 둘게요."
+                else -> "이미 가장 민감한 기준이에요."
+            },
+            color = Water,
+            fontSize = 30.sp,
+        )
+    }
+}
+
+@Composable
+private fun Button(text: String, small: Boolean = false, onClick: () -> Unit) {
+    Text(
+        text,
+        color = Glass,
+        fontSize = if (small) 26.sp else 32.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier
+            .clip(RoundedCornerShape(Corner))
+            .background(Panel)
+            .clickable { onClick() }
+            .padding(horizontal = if (small) 22.dp else 30.dp, vertical = if (small) 16.dp else 22.dp),
+    )
 }
 
 @Composable
@@ -226,8 +329,14 @@ private fun DrivingScreen(state: UiState) {
             val cause = state.lastCause
             val turn = state.upcomingTurn
             Text(
-                text = cause?.label() ?: turn?.let { "곧 ${it.label}" } ?: " ",
-                color = if (cause != null) Warn else Water,
+                text = cause?.label()
+                    ?: "방향지시등 없이 차선 변경".takeIf { state.laneNotice }
+                    ?: "뒷좌석 안전벨트 확인".takeIf { state.signals.beltWarnRear }
+                    ?: "안전벨트 확인".takeIf { state.signals.beltWarnFront }
+                    ?: turn?.let { "곧 ${it.label}" }
+                    ?: state.speedLimitKph?.takeIf { state.overLimit }?.let { "제한속도 $it km/h" }
+                    ?: " ",
+                color = if (cause != null || state.laneNotice || state.signals.beltWarnRear || state.signals.beltWarnFront || (turn == null && state.overLimit)) Warn else Water,
                 fontSize = 44.sp,
                 fontWeight = FontWeight.Medium,
             )
@@ -237,7 +346,7 @@ private fun DrivingScreen(state: UiState) {
 
 /** 도착 리뷰: 원인별 횟수와 한 줄 조언. */
 @Composable
-private fun ReviewScreen(state: UiState, onAsk: () -> Unit) {
+private fun ReviewScreen(state: UiState, onAsk: () -> Unit, onPassenger: (Boolean) -> Unit) {
     val cup = state.cup
     val clean = cup.events.isEmpty()
     Row(
@@ -263,7 +372,9 @@ private fun ReviewScreen(state: UiState, onAsk: () -> Unit) {
                 Stat("주행 시간", formatDuration(cup.durationSec))
                 Stat("쏟은 물", "%.0f ml".format(cup.spilledMl))
             }
+            DriveChecks(state)
             Spacer(Modifier.height(8.dp))
+            PassengerRow(state, onPassenger)
             AskRow(state, onAsk)
             Text("기어를 D에 넣으면 새 컵으로 다시 시작해요.", color = Dim, fontSize = 28.sp)
         }
@@ -281,7 +392,8 @@ private fun ReviewScreen(state: UiState, onAsk: () -> Unit) {
                 Text("쏟은 원인", color = Dim, fontSize = 36.sp)
                 val counts = cup.events.groupingBy { it.cause }.eachCount()
                 val max = counts.values.max()
-                SpillCause.entries.forEach { cause ->
+                // 과속방지턱은 길 안내 중에만 판정되므로 기록이 있을 때만 보여 준다
+                SpillCause.entries.filter { it != SpillCause.SPEED_BUMP || it in counts }.forEach { cause ->
                     CauseRow(cause, counts[cause] ?: 0, max)
                 }
                 val noSignal = cup.events.count { it.withoutSignal }

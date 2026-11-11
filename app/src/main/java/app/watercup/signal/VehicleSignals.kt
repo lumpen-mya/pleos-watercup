@@ -6,6 +6,7 @@ import ai.pleos.playground.vehicle.constant.area.SeatValue
 import ai.pleos.playground.vehicle.constant.area.TurnSignalValue
 import ai.pleos.playground.vehicle.constant.control.VehicleGear
 import ai.pleos.playground.vehicle.listener.BrakePedalStatusListener
+import ai.pleos.playground.vehicle.listener.SeatBeltBuckledStateListener
 import ai.pleos.playground.vehicle.listener.GearSelectionListener
 import ai.pleos.playground.vehicle.listener.SeatOccupancyListener
 import ai.pleos.playground.vehicle.listener.SteeringWheelAngleListener
@@ -22,6 +23,9 @@ data class SignalSnapshot(
     val steeringDeg: Float = 0f,
     val rearOccupied: Boolean = false,
     val turnSignal: String? = null,
+    /** 안전벨트를 매지 않은 사람이 있는지 (운전석, 사람이 탄 뒷좌석) */
+    val beltWarnFront: Boolean = false,
+    val beltWarnRear: Boolean = false,
     /** 값을 한 번이라도 받은 신호 이름 */
     val live: Set<String> = emptySet(),
     /** 신호 이름 → 마지막 오류 */
@@ -38,6 +42,8 @@ class VehicleSignals(context: Context) {
     @Volatile private var steering = 0f
     @Volatile private var turnSignal: String? = null
     private val rearSeats = ConcurrentHashMap<SeatValue, Boolean>()
+    private val buckled = ConcurrentHashMap<SeatValue, Boolean>()
+    @Volatile private var beltProven = false
     private val live = ConcurrentHashMap.newKeySet<String>()
     private val errors = ConcurrentHashMap<String, String>()
 
@@ -88,6 +94,21 @@ class VehicleSignals(context: Context) {
         }
     }
 
+    private val beltListeners = (listOf(DRIVER_SEAT) + REAR_SEATS).associateWith { seat ->
+        object : SeatBeltBuckledStateListener {
+            override fun onSeatBeltBuckledStateUpdated(value: Boolean?) {
+                if (value != null) buckled[seat] = value
+                // 체결 값이 한 번이라도 들어온 차량에서만 안전벨트를 본다 (항상 false 만 주는 환경의 오경보 방지)
+                if (value == true) {
+                    beltProven = true
+                    live.add(BELT)
+                }
+            }
+
+            override fun onFailed(e: Exception) = fail(BELT, e)
+        }
+    }
+
     fun start() {
         if (started) return
         started = true
@@ -113,6 +134,10 @@ class VehicleSignals(context: Context) {
             val api = vehicle.getSeat()
             seatListeners.forEach { (seat, listener) -> api.registerSeatOccupancy(SeatArea(seat), listener) }
         }
+        guard(BELT) {
+            val api = vehicle.getSeat()
+            beltListeners.forEach { (seat, listener) -> api.registerSeatBeltBuckledState(SeatArea(seat), listener) }
+        }
     }
 
     fun stop() {
@@ -126,6 +151,10 @@ class VehicleSignals(context: Context) {
             val api = vehicle.getSeat()
             seatListeners.forEach { (seat, listener) -> api.unregisterSeatOccupancy(SeatArea(seat), listener) }
         }
+        guard(BELT) {
+            val api = vehicle.getSeat()
+            beltListeners.forEach { (seat, listener) -> api.unregisterSeatBeltBuckledState(SeatArea(seat), listener) }
+        }
         guard("sdk") { vehicle.release() }
     }
 
@@ -135,6 +164,8 @@ class VehicleSignals(context: Context) {
         steeringDeg = steering,
         rearOccupied = rearSeats.values.any { it },
         turnSignal = turnSignal,
+        beltWarnFront = beltProven && buckled[DRIVER_SEAT] == false,
+        beltWarnRear = beltProven && REAR_SEATS.any { rearSeats[it] == true && buckled[it] == false },
         live = live.toSet(),
         errors = errors.toMap(),
     )
@@ -166,6 +197,8 @@ class VehicleSignals(context: Context) {
         const val STEERING = "핸들"
         const val TURN_SIGNAL = "방향지시등"
         const val SEAT = "뒷좌석"
+        const val BELT = "안전벨트"
+        private val DRIVER_SEAT = SeatValue.ROW_1_LEFT
         private const val TAG = "WaterCup"
         private val REAR_SEATS = listOf(SeatValue.ROW_2_LEFT, SeatValue.ROW_2_CENTER, SeatValue.ROW_2_RIGHT)
     }

@@ -68,7 +68,7 @@ python3 tools/drive_demo.py smooth
 ## APK
 
 - release 빌드: `./gradlew assembleRelease` → `app/build/outputs/apk/release/app-release.apk`
-- 제출 시 `apk/팀명_앱이름_release.apk` 로 복사해 올린다.
+- 제출용 APK: `apk/lumpen_찰랑_release.apk` (release 빌드를 복사한 것)
 
 ## 시연 자료
 

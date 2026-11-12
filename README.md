@@ -36,6 +36,12 @@
 ./gradlew installDebug
 ```
 
+   제출용 APK를 바로 설치하려면 빌드 대신 아래를 실행한다.
+
+```bash
+adb install -r apk/찰랑_release.apk
+```
+
 4. 앱 서랍에서 `찰랑`을 실행하고 차량 속도 권한을 허용한다.
 
 ## 시연 방법 (Virtual Console)
@@ -57,18 +63,24 @@ python3 tools/drive_demo.py smooth
 
 `rough`는 급가속·회생제동·급조향·급제동이 섞인 주행, `smooth`는 한 방울도 쏟지 않는 주행이다.
 
-## 테스트 환경
+## 테스트 환경 및 필요한 설정
 
-- Pleos Connect Emulator v2.1.0 (Android API 34, x86_64), 2560×1440
+- 에뮬레이터 버전: Pleos Connect Emulator v2.1.0 (Android API 34, x86_64)
+- 화면 규격: 2560×1440 (가로)
+- 필요한 설정
+  - 첫 실행 때 뜨는 차량 속도 권한을 허용한다. 거절하면 속도를 읽지 못해 주행이 시작되지 않는다.
+  - 알림 권한은 선택이다. 거절해도 기록과 음성 코칭은 동작한다.
+  - 주행 신호는 Virtual Console로 넣는다. `adb forward tcp:8088 tcp:8088` 뒤 아래 "시연 방법"을 따른다.
+  - 음성을 들으려면 에뮬레이터 오디오를 켠 상태로 실행한다.
 - JDK 17, Gradle 8.14.3, Android Gradle Plugin 8.8.2, Kotlin 2.0.0
 - 단위 테스트: `./gradlew testDebugUnitTest` (물 출렁임·원인 분류, 예고 시점, 음성 질문 응답, 기준 조절, 차선 변경 추정, 과속방지턱·제한속도 판정, 추세, 음성 간격 40건)
 - 음성: 오디오를 켠 에뮬레이터에서 주행 중 코칭과 도착 리뷰가 Pleos 음성 합성 서비스로 재생되는 것을 로그(재생 시작·완료)로 확인했다. 음성 질문은 듣기 시작까지 확인했다.
 - 에뮬레이터에서 확인하지 못한 것: 음성 인식 결과(마이크 입력 없음), 내비 음성 겹침 방지, 경로 안내 중 예고 안내, 과속방지턱·제한속도 실경로 (구현했으나 확인은 2차 개발). 에뮬레이터의 내비 앱이 실행되지 않아 길 안내 상태를 만들지 못했다.
 
-## APK
+## APK 파일 위치
 
 - release 빌드: `./gradlew assembleRelease` → `app/build/outputs/apk/release/app-release.apk`
-- 제출용 APK: `apk/lumpen_찰랑_release.apk` (release 빌드를 복사한 것)
+- 제출용 APK: `apk/찰랑_release.apk` (release 빌드를 복사한 것)
 
 ## 시연 자료
 

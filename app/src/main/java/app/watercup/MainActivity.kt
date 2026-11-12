@@ -32,9 +32,11 @@ class MainActivity : ComponentActivity() {
         CoachService.start(this)
         if (checkSelfPermission(CarSpeedSource.PERMISSION) == PackageManager.PERMISSION_GRANTED) {
             viewModel.startSpeed()
-            askNotificationsOnce()
-        } else {
-            speedPermission.launch(CarSpeedSource.PERMISSION)
+        }
+        // 앱 화면이 뜨기 전에 권한 창이 먼저 뜨면 Pleos 홈이 이 앱을 주행 중 사용 불가로 가린다
+        // (에뮬레이터에서 확인). 그래서 새로 켰을 때만, 화면이 뜬 뒤에 묻는다.
+        if (savedInstanceState == null) {
+            window.decorView.postDelayed(::askPermissions, PERMISSION_ASK_DELAY_MS)
         }
         setContent {
             val state by viewModel.ui.collectAsStateWithLifecycle()
@@ -47,6 +49,15 @@ class MainActivity : ComponentActivity() {
                 // 작은 화면 모드를 넓은 화면에서 확인할 때: am start --ez compact true
                 forceCompact = intent?.getBooleanExtra("compact", false) == true,
             )
+        }
+    }
+
+    private fun askPermissions() {
+        if (isFinishing || isDestroyed) return
+        if (checkSelfPermission(CarSpeedSource.PERMISSION) == PackageManager.PERMISSION_GRANTED) {
+            askNotificationsOnce()
+        } else {
+            speedPermission.launch(CarSpeedSource.PERMISSION)
         }
     }
 
@@ -74,5 +85,6 @@ class MainActivity : ComponentActivity() {
     private companion object {
         const val PREFS = "watercup"
         const val KEY_NOTIFICATION_ASKED = "notification_asked"
+        const val PERMISSION_ASK_DELAY_MS = 1500L
     }
 }

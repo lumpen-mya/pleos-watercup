@@ -17,6 +17,7 @@ adb forward tcp:8088 tcp:8088 > /dev/null
 python3 tools/drive_demo.py park > /dev/null
 adb shell pm clear --user 10 app.watercup > /dev/null   # 기록 초기화
 adb shell pm grant --user 10 app.watercup android.car.permission.CAR_SPEED
+adb shell pm grant --user 10 app.watercup android.permission.POST_NOTIFICATIONS   # 캡처에 권한 창이 끼지 않게
 adb shell am start --user 10 -n app.watercup/.MainActivity > /dev/null
 wait_s 6
 

@@ -113,6 +113,9 @@ class Coach private constructor(app: Application) {
     private var history = store.trips()
     private var previous: TripRecord? = null
     private var careMode = false
+    private var tripRearOccupied = false
+    private var tripSensitivity = sensitivity
+    private var tripRimDeg = RimTuning.rim(sensitivity.rimDeg, rimOffset)
     private var upcomingTurn: NextTurn? = null
     private var upcomingAt = 0L
     private var lastNaviPollAt = 0L
@@ -195,7 +198,9 @@ class Coach private constructor(app: Application) {
                 // P단이 아니거나 차가 움직이면 새 주행으로 본다
                 if ((snap.gear == GearPos.DRIVE || snap.gear == GearPos.REVERSE) || (moving && snap.gear != GearPos.PARK)) {
                     engine.reset()
-                    engine.setRimDeg(RimTuning.rim(sensitivity.rimDeg, rimOffset))
+                    tripSensitivity = sensitivity
+                    tripRimDeg = RimTuning.rim(sensitivity.rimDeg, rimOffset)
+                    engine.setRimDeg(tripRimDeg)
                     passengerComfortable = null
                     rimChange = 0
                     preview.reset()
@@ -205,6 +210,7 @@ class Coach private constructor(app: Application) {
                     laneChanges = 0
                     laneChangesNoSignal = 0
                     laneNoticeAt = 0L
+                    tripRearOccupied = false
                     ask.cancel()
                     heard = null
                     answer = null
@@ -214,6 +220,7 @@ class Coach private constructor(app: Application) {
 
             Phase.DRIVING -> {
                 careMode = snap.rearOccupied
+                if (careMode) tripRearOccupied = true
                 val signalOn = snap.turnSignal != null && snap.turnSignal != "OFF"
                 val event = engine.step(dt, mps, snap.steeringDeg, snap.brakePressed, signalOn)
                 if (event != null) onSpill(event, now)
@@ -237,7 +244,15 @@ class Coach private constructor(app: Application) {
                     previous = history.firstOrNull()
                     // 시동만 걸었다 끈 정도의 짧은 이동은 기록하지 않는다
                     if (cup.distanceM > MIN_TRIP_M || cup.events.isNotEmpty()) {
-                        history = store.add(TripRecord.from(cup, System.currentTimeMillis()))
+                        history = store.add(
+                            TripRecord.from(
+                                cup,
+                                System.currentTimeMillis(),
+                                sensitivity = tripSensitivity,
+                                rimDeg = tripRimDeg,
+                                rearOccupied = tripRearOccupied,
+                            ),
+                        )
                     }
                     voice.say(reviewSpeech(cup, previous))
                 }

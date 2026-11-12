@@ -25,16 +25,32 @@ data class TripRecord(
     val durationSec: Float,
     val spilledMl: Float,
     val counts: Map<SpillCause, Int>,
+    // 쏟은 횟수는 넘침 기준에 따라 달라지므로, 주행끼리 비교할 수 있게 그때의 조건을 함께 남긴다.
+    // 이 값들이 없던 때의 기록은 null 이다.
+    val sensitivity: Sensitivity? = null,
+    /** 이 주행에 적용된 넘침 기준(도). 민감도 기본값에 동승자 확인 보정을 더한 값. */
+    val rimDeg: Float? = null,
+    /** 주행 중 뒷좌석 탑승이 한 번이라도 감지됐는지. */
+    val rearOccupied: Boolean? = null,
 ) {
     val spills: Int get() = counts.values.sum()
 
     companion object {
-        fun from(cup: CupState, endedAt: Long) = TripRecord(
+        fun from(
+            cup: CupState,
+            endedAt: Long,
+            sensitivity: Sensitivity? = null,
+            rimDeg: Float? = null,
+            rearOccupied: Boolean? = null,
+        ) = TripRecord(
             endedAt = endedAt,
             distanceM = cup.distanceM,
             durationSec = cup.durationSec,
             spilledMl = cup.spilledMl,
             counts = cup.events.groupingBy { it.cause }.eachCount(),
+            sensitivity = sensitivity,
+            rimDeg = rimDeg,
+            rearOccupied = rearOccupied,
         )
     }
 }
@@ -82,6 +98,9 @@ class TripStore(context: Context) {
         put("durationSec", trip.durationSec.toDouble())
         put("spilledMl", trip.spilledMl.toDouble())
         put("counts", JSONObject().apply { trip.counts.forEach { (cause, n) -> put(cause.name, n) } })
+        trip.sensitivity?.let { put("sensitivity", it.name) }
+        trip.rimDeg?.let { put("rimDeg", it.toDouble()) }
+        trip.rearOccupied?.let { put("rearOccupied", it) }
     }
 
     private fun parse(json: JSONObject): TripRecord {
@@ -92,6 +111,9 @@ class TripStore(context: Context) {
             durationSec = json.getDouble("durationSec").toFloat(),
             spilledMl = json.getDouble("spilledMl").toFloat(),
             counts = SpillCause.entries.filter { counts.has(it.name) }.associateWith { counts.getInt(it.name) },
+            sensitivity = Sensitivity.entries.firstOrNull { it.name == json.optString("sensitivity") },
+            rimDeg = if (json.has("rimDeg")) json.getDouble("rimDeg").toFloat() else null,
+            rearOccupied = if (json.has("rearOccupied")) json.getBoolean("rearOccupied") else null,
         )
     }
 
@@ -99,6 +121,6 @@ class TripStore(context: Context) {
         const val KEY_TRIPS = "trips"
         const val KEY_SENSITIVITY = "sensitivity"
         const val KEY_OFFSET = "rim_offset_"
-        const val MAX_TRIPS = 30
+        const val MAX_TRIPS = 200
     }
 }

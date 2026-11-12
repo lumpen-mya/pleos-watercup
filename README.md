@@ -61,7 +61,7 @@ python3 tools/drive_demo.py smooth
 
 - Pleos Connect Emulator v2.1.0 (Android API 34, x86_64), 2560×1440
 - JDK 17, Gradle 8.14.3, Android Gradle Plugin 8.8.2, Kotlin 2.0.0
-- 단위 테스트: `./gradlew testDebugUnitTest` (물 출렁임·원인 분류, 예고 시점, 음성 질문 응답, 기준 조절, 차선 변경 추정, 과속방지턱·제한속도 판정, 추세, 음성 간격 38건)
+- 단위 테스트: `./gradlew testDebugUnitTest` (물 출렁임·원인 분류, 예고 시점, 음성 질문 응답, 기준 조절, 차선 변경 추정, 과속방지턱·제한속도 판정, 추세, 음성 간격 40건)
 - 에뮬레이터에서 확인하지 못한 것: 실제 음성 입출력과 내비 음성 겹침 방지(오디오 끈 상태로 실행), 경로 안내 중 예고 안내, 과속방지턱·제한속도 실경로 (구현했으나 확인은 2차 개발)
 
 ## APK
